@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rush ID To Go</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  body {
+    font-family: "Segoe UI", sans-serif;
+    background: #f7f7f7;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  header {
+    text-align: center;
+    margin: 1rem 0;
+  }
+  h1 {
+    font-size: 1.5rem;
+    color: #222;
+    margin-bottom: .25rem;
+  }
+  .controls {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: .5rem;
+  }
+  input[type="file"], select, button {
+    padding: .5rem .8rem;
+    border-radius: .4rem;
+    border: 1px solid #ccc;
+    font-size: .9rem;
+  }
+  button {
+    background: #007bff;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
+  button:hover { background: #0056c9; }
+
+  .preview-container {
+    background: #fff;
+    box-shadow: 0 0 8px rgba(0,0,0,.15);
+    margin: .5rem auto .3rem;
+    width: 90vw;
+    max-width: 350px;
+    aspect-ratio: 5 / 7;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+  }
+  canvas {
+    width: 100%;
+    height: 100%;
+    background: white;
+  }
+  .price {
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 1rem;
+  }
+  .toggle-bg {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .9rem;
+  }
+  .toggle-bg input {
+    width: 16px;
+    height: 16px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>📸 Rush ID To Go</h1>
+    <p style="color:#555;margin:0;">Capture / Upload → Choose Layout → Save PDF</p>
+  </header>
+
+  <div class="controls">
+    <!-- Camera-enabled file input -->
+    <input type="file" id="imageInput" accept="image/*" capture="environment">
+    <div class="toggle-bg">
+      <input type="checkbox" id="removeBgToggle">
+      <label for="removeBgToggle">Remove Background</label>
+    </div>
+    <select id="layoutSelect">
+      <option value="A">Layout A (4×2x2 + 8×1x1) — ₱30</option>
+      <option value="B">Layout B (6×2x2) — ₱30</option>
+      <option value="C">Layout C (24×1x1) — ₱30</option>
+      <option value="D">Layout D (2×2x2 + 4×1x1) — ₱20</option>
+      <option value="E">Layout E (2×2x2) — ₱10</option>
+      <option value="F">Layout F (4×1x1) — ₱10</option>
+    </select>
+    <button id="saveBtn">💾 Save as PDF</button>
+  </div>
+
+  <div class="preview-container">
+    <canvas id="idCanvas" width="1500" height="2100"></canvas>
+  </div>
+
+  <div class="price" id="priceTag">₱30</div>
+
+<script>
+const { jsPDF } = window.jspdf;
+const canvas = document.getElementById("idCanvas");
+const ctx = canvas.getContext("2d");
+const imgInput = document.getElementById("imageInput");
+const layoutSelect = document.getElementById("layoutSelect");
+const saveBtn = document.getElementById("saveBtn");
+const priceTag = document.getElementById("priceTag");
+const removeBgToggle = document.getElementById("removeBgToggle");
+
+let uploadedImg = null;
+
+const DPI = 300;
+const PAGE_W = 5 * DPI;
+const PAGE_H = 7 * DPI;
+const MARGIN = 0.25 * DPI;
+const printableW = PAGE_W - 2 * MARGIN;
+const printableH = PAGE_H - 2 * MARGIN;
+
+const priceMap = { A:30, B:30, C:30, D:20, E:10, F:10 };
+const apiKey = "h7odgifyTwY7PMLT2esqQeMJ"; // remove.bg key
+
+imgInput.addEventListener("change", handleImageUpload);
+layoutSelect.addEventListener("change", () => {
+  drawLayout();
+  updatePrice();
+});
+saveBtn.addEventListener("click", savePDF);
+
+function updatePrice() {
+  priceTag.textContent = `₱${priceMap[layoutSelect.value]}`;
+}
+
+function handleImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  if (removeBgToggle.checked) {
+    removeBackground(file);
+  } else {
+    loadImage(URL.createObjectURL(file));
+  }
+}
+
+function removeBackground(file) {
+  const formData = new FormData();
+  formData.append("image_file", file);
+  formData.append("size", "auto");
+
+  fetch("https://api.remove.bg/v1.0/removebg", {
+    method: "POST",
+    headers: { "X-Api-Key": apiKey },
+    body: formData
+  })
+  .then(res => res.blob())
+  .then(blob => loadImage(URL.createObjectURL(blob)))
+  .catch(() => {
+    alert("Failed to remove background. Using original image instead.");
+    loadImage(URL.createObjectURL(file));
+  });
+}
+
+function loadImage(src) {
+  uploadedImg = new Image();
+  uploadedImg.crossOrigin = "anonymous";
+  uploadedImg.onload = drawLayout;
+  uploadedImg.src = src;
+}
+
+function drawLayout() {
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+  if (!uploadedImg) return;
+  const layout = layoutSelect.value;
+  if (layout === "A") drawLayoutA();
+  else if (layout === "B") drawLayoutB();
+  else if (layout === "C") drawLayoutC();
+  else if (layout === "D") drawLayoutD();
+  else if (layout === "E") drawLayoutE();
+  else drawLayoutF();
+}
+
+// Layout functions
+function drawLayoutA() {
+  const two = 2 * DPI, one = 1 * DPI;
+  const startX2 = MARGIN + (printableW - 2 * two) / 2;
+  const startY2 = MARGIN;
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++)
+    drawImageBordered(uploadedImg, startX2 + c * two, startY2 + r * two, two, two);
+  const startX1 = MARGIN + (printableW - 4 * one) / 2;
+  const startY1 = startY2 + 2 * two;
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++)
+    drawImageBordered(uploadedImg, startX1 + c * one, startY1 + r * one, one, one);
+}
+
+function drawLayoutB() {
+  const two = 2 * DPI;
+  const startX = MARGIN + (printableW - 2 * two) / 2;
+  const startY = MARGIN + (printableH - 3 * two) / 2;
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++)
+    drawImageBordered(uploadedImg, startX + c * two, startY + r * two, two, two);
+}
+
+function drawLayoutC() {
+  const one = 1 * DPI;
+  const startX = MARGIN + (printableW - 4 * one) / 2;
+  const startY = MARGIN + (printableH - 6 * one) / 2;
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 4; c++)
+    drawImageBordered(uploadedImg, startX + c * one, startY + r * one, one, one);
+}
+
+function drawLayoutD() {
+  const two = 2 * DPI, one = 1 * DPI;
+  const topMargin = 0.15 * DPI;
+  const totalW2 = 2 * two;
+  const startX2 = MARGIN + (printableW - totalW2) / 2;
+  const startY2 = MARGIN + topMargin;
+  for (let c = 0; c < 2; c++)
+    drawImageBordered(uploadedImg, startX2 + c * two, startY2, two, two);
+
+  const totalW1 = 4 * one;
+  const startX1 = MARGIN + (printableW - totalW1) / 2;
+  const startY1 = startY2 + two;
+  for (let c = 0; c < 4; c++)
+    drawImageBordered(uploadedImg, startX1 + c * one, startY1, one, one);
+}
+
+function drawLayoutE() {
+  const two = 2 * DPI;
+  const startX = MARGIN + (printableW - 2 * two) / 2;
+  const startY = MARGIN;
+  for (let c = 0; c < 2; c++)
+    drawImageBordered(uploadedImg, startX + c * two, startY, two, two);
+}
+
+function drawLayoutF() {
+  const one = 1 * DPI;
+  const startX = MARGIN + (printableW - 4 * one) / 2;
+  const startY = MARGIN;
+  for (let c = 0; c < 4; c++)
+    drawImageBordered(uploadedImg, startX + c * one, startY, one, one);
+}
+
+function drawImageBordered(img, x, y, w, h) {
+  ctx.drawImage(img, x, y, w, h);
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+}
+
+function savePDF() {
+  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: [5, 7] });
+  const imgData = canvas.toDataURL("image/jpeg", 1.0);
+  pdf.addImage(imgData, "JPEG", 0, 0, 5, 7);
+  pdf.save("rush_id.pdf");
+}
+</script>
+</body>
+</html>
